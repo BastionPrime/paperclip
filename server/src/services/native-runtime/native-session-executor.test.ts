@@ -40,7 +40,6 @@ import {
   NativeSessionCleanupQuarantinedError,
   NativeProviderTerminalFailure,
   NativeSessionProtocolIntegrityError,
-  defaultCapabilityRunnerdBinary,
 } from "../../vendor/paperclip-runner/index.js";
 import * as issueServiceModule from "../issues.js";
 import {
@@ -174,7 +173,6 @@ vi.mock("../../vendor/paperclip-runner/index.js", async (importOriginal) => {
   >();
   return {
     ...original,
-    defaultCapabilityRunnerdBinary: vi.fn(original.defaultCapabilityRunnerdBinary),
     createNativeSessionBackend: state.createBackend,
     createRunnerdCodexTransport: state.createTransport,
     executeNativeSession: state.execute,
@@ -9650,7 +9648,7 @@ describe("runnerd provider runtime wiring", () => {
     const controllerArtifact = join(isolatedStateDirectory, "paperclip-runnerd");
     if (staleRunner) {
       await writeFile(controllerArtifact, "fixture runner artifact");
-      vi.mocked(defaultCapabilityRunnerdBinary).mockReturnValueOnce(controllerArtifact);
+      state.resolveRunnerBinary.mockReturnValueOnce(controllerArtifact);
     }
     const syncIn = vi.fn(async () => undefined);
     const remoteExecute = vi.fn(
@@ -9726,6 +9724,7 @@ describe("runnerd provider runtime wiring", () => {
       "reached-preinstalled-codex-verification",
     );
     if (staleRunner) {
+      expect(transport.runnerBinary).toBe(controllerArtifact);
       expect(syncIn).toHaveBeenCalledTimes(1);
       expect(syncIn).toHaveBeenCalledWith([expect.objectContaining({
         files: [expect.objectContaining({
