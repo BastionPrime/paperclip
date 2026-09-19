@@ -335,6 +335,18 @@ it.skipIf(!gnuTar)("extracts interleaved read-only skill directories with GNU ta
     expect(await fs.readFile(path.join(target, "references", "agents", "qa.md"), "utf8")).toBe("QA instructions");
     expect((await fs.stat(path.join(target, "references", "agents"))).mode & 0o777).toBe(0o555);
     expect((await fs.stat(path.join(target, "references", "agents", "qa.md"))).mode & 0o777).toBe(0o444);
+    // Never treat a corrupted read-only bundle as a cache hit, even if its
+    // file size, permissions and timestamp still match the source archive.
+    const qa = path.join(target, "references", "agents", "qa.md");
+    const before = await fs.stat(qa);
+    await fs.chmod(qa, 0o644);
+    await fs.writeFile(qa, "XX instructions");
+    await fs.chmod(qa, 0o444);
+    await fs.utimes(qa, before.atime, before.mtime);
+    await expect(performSyncIn({ sandbox: sandbox as never, remoteDir, timeoutSeconds: 30,
+      operations: [{ operationId: "corrupt-skill-resume", files: [{ sourcePath: source, targetPath: target, kind: "directory", mode: 0o555 }] }] })).rejects.toThrow("syncIn extract");
+    expect(await fs.readFile(qa, "utf8")).toBe("XX instructions");
+
   } finally {
     for (const base of [source, target]) {
       for (const dir of ["references/agents", "references"]) await fs.chmod(path.join(base, dir), 0o700).catch(() => undefined);
