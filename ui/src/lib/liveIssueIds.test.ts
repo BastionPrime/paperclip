@@ -3,9 +3,10 @@ import type { LiveRunForIssue } from "../api/heartbeats";
 import {
   collectLiveIssueIds,
   collectSubtreeLiveCounts,
+  INITIAL_LIVE_RUN_COVERAGE,
   isLiveRunCoverageComplete,
-  latchLiveRunCoverage,
   LIVE_RUNS_PAGE_LIMIT,
+  trackLiveRunCoverage,
 } from "./liveIssueIds";
 
 function liveRun(overrides: Partial<LiveRunForIssue>): LiveRunForIssue {
@@ -48,25 +49,47 @@ describe("isLiveRunCoverageComplete", () => {
   });
 });
 
-describe("latchLiveRunCoverage", () => {
+describe("trackLiveRunCoverage", () => {
   function runsOfLength(length: number): LiveRunForIssue[] {
     return Array.from({ length }, (_, index) => liveRun({ id: `run-${index}`, issueId: `issue-${index}` }));
   }
 
+  const COMPANY = "company-1";
+
   it("keeps a complete window complete", () => {
-    expect(latchLiveRunCoverage(true, runsOfLength(3))).toBe(true);
-    expect(latchLiveRunCoverage(true, undefined)).toBe(true);
+    const short = trackLiveRunCoverage(INITIAL_LIVE_RUN_COVERAGE, COMPANY, runsOfLength(3));
+    expect(short.complete).toBe(true);
+    expect(trackLiveRunCoverage(short, COMPANY, undefined).complete).toBe(true);
   });
 
   it("holds the truncated verdict after events shrink the cached page", () => {
     // A full page means runs we never saw. `removeRunFromList` then drops a
     // finished run from that same array without any refetch — the shorter list
     // says nothing about the runs the page hid, so the verdict must not flip.
-    const truncated = latchLiveRunCoverage(true, runsOfLength(LIVE_RUNS_PAGE_LIMIT));
-    expect(truncated).toBe(false);
-    expect(latchLiveRunCoverage(truncated, runsOfLength(LIVE_RUNS_PAGE_LIMIT - 1))).toBe(false);
-    expect(latchLiveRunCoverage(truncated, runsOfLength(0))).toBe(false);
-    expect(latchLiveRunCoverage(truncated, undefined)).toBe(false);
+    const truncated = trackLiveRunCoverage(INITIAL_LIVE_RUN_COVERAGE, COMPANY, runsOfLength(LIVE_RUNS_PAGE_LIMIT));
+    expect(truncated.complete).toBe(false);
+    expect(trackLiveRunCoverage(truncated, COMPANY, runsOfLength(LIVE_RUNS_PAGE_LIMIT - 1)).complete).toBe(false);
+    expect(trackLiveRunCoverage(truncated, COMPANY, runsOfLength(0)).complete).toBe(false);
+    expect(trackLiveRunCoverage(truncated, COMPANY, undefined).complete).toBe(false);
+  });
+
+  it("starts over on another company instead of carrying the verdict across", () => {
+    // The provider outlives a company switch. A busy company must not leave the
+    // next one animating every in-progress icon.
+    const truncated = trackLiveRunCoverage(INITIAL_LIVE_RUN_COVERAGE, COMPANY, runsOfLength(LIVE_RUNS_PAGE_LIMIT));
+    const switched = trackLiveRunCoverage(truncated, "company-2", runsOfLength(2));
+    expect(switched.complete).toBe(true);
+    // A full page in the new company latches there, on its own evidence.
+    expect(trackLiveRunCoverage(switched, "company-2", runsOfLength(LIVE_RUNS_PAGE_LIMIT)).complete).toBe(false);
+    // Coming back re-reads this company's page instead of restoring the old verdict.
+    expect(trackLiveRunCoverage(switched, COMPANY, runsOfLength(2)).complete).toBe(true);
+    // Staying on the same company keeps its latch — that is the point of it.
+    expect(trackLiveRunCoverage(truncated, COMPANY, runsOfLength(2)).complete).toBe(false);
+  });
+
+  it("returns the same object when nothing changed, so the context value is stable", () => {
+    const first = trackLiveRunCoverage(INITIAL_LIVE_RUN_COVERAGE, COMPANY, runsOfLength(3));
+    expect(trackLiveRunCoverage(first, COMPANY, runsOfLength(4))).toBe(first);
   });
 });
 

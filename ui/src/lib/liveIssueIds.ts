@@ -81,7 +81,7 @@ export const LIVE_RUNS_PAGE_LIMIT = 50;
  *
  * This reads the array as it stands. The cached array also shrinks between
  * fetches — `removeRunFromList` drops a run when it finishes — so a caller that
- * holds the verdict over time must latch it with {@link latchLiveRunCoverage}
+ * holds the verdict over time must latch it with {@link trackLiveRunCoverage}
  * rather than recompute it from a list that events have edited.
  */
 export function isLiveRunCoverageComplete(
@@ -90,9 +90,18 @@ export function isLiveRunCoverageComplete(
   return (liveRuns?.length ?? 0) < LIVE_RUNS_PAGE_LIMIT;
 }
 
+/** A coverage verdict and the company it was reached about. */
+export interface LiveRunCoverage {
+  /** Company the verdict describes; a different one starts the verdict over. */
+  companyId: string | null;
+  complete: boolean;
+}
+
+export const INITIAL_LIVE_RUN_COVERAGE: LiveRunCoverage = { companyId: null, complete: true };
+
 /**
  * Carry a coverage verdict forward across cache edits: once a page has arrived
- * full, the window stays incomplete.
+ * full, that company's window stays incomplete.
  *
  * Run-lifecycle events edit the cached list in place — a finished run is
  * removed from it — so a truncated page of {@link LIVE_RUNS_PAGE_LIMIT} shrinks
@@ -100,15 +109,20 @@ export function isLiveRunCoverageComplete(
  * would announce a complete window while the runs the page originally hid are
  * still invisible, and tasks those runs belong to would read as idle.
  *
- * Losing a run tells us nothing about the ones we never saw, so the verdict only
- * travels one way. It resets when the provider remounts (a page load, or a
- * company switch), which is the next point a fresh page is read from scratch.
+ * Losing a run tells us nothing about the ones we never saw, so within one
+ * company the verdict only travels one way. It is per company, though: a busy
+ * company says nothing about the next one, and the provider outlives the switch,
+ * so changing `companyId` starts the verdict over on that company's own page.
  */
-export function latchLiveRunCoverage(
-  previouslyComplete: boolean,
+export function trackLiveRunCoverage(
+  previous: LiveRunCoverage,
+  companyId: string | null,
   liveRuns: readonly LiveRunForIssue[] | null | undefined,
-): boolean {
-  return previouslyComplete && isLiveRunCoverageComplete(liveRuns);
+): LiveRunCoverage {
+  const carried = previous.companyId === companyId ? previous.complete : true;
+  const complete = carried && isLiveRunCoverageComplete(liveRuns);
+  if (complete === previous.complete && companyId === previous.companyId) return previous;
+  return { companyId, complete };
 }
 
 export function collectLiveIssueIds(

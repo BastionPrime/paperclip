@@ -3,7 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { heartbeatsApi, type LiveRunForIssue } from "../api/heartbeats";
 import { useOptionalCompany } from "./CompanyContext";
 import { useSharedPollingQuery, usePublishSharedQueryData } from "../hooks/useSharedPolling";
-import { collectLiveIssueIds, latchLiveRunCoverage, LIVE_RUNS_PAGE_LIMIT } from "../lib/liveIssueIds";
+import {
+  collectLiveIssueIds,
+  trackLiveRunCoverage,
+  INITIAL_LIVE_RUN_COVERAGE,
+  LIVE_RUNS_PAGE_LIMIT,
+} from "../lib/liveIssueIds";
 import { queryKeys } from "../lib/queryKeys";
 
 /**
@@ -68,10 +73,12 @@ export function AgentActivityProvider({ children }: { children: ReactNode }) {
   const workingIssueIds = stableIssueIds.current;
   // Latched, not recomputed: run-lifecycle events remove finished runs from this
   // same array, so a truncated page drops under the cap on its own and would
-  // otherwise start passing for a complete one.
-  const coverage = useRef(true);
-  coverage.current = latchLiveRunCoverage(coverage.current, liveRuns);
-  const coverageComplete = coverage.current;
+  // otherwise start passing for a complete one. The latch is per company —
+  // this provider outlives a company switch, and a busy company says nothing
+  // about the next one.
+  const coverage = useRef(INITIAL_LIVE_RUN_COVERAGE);
+  coverage.current = trackLiveRunCoverage(coverage.current, companyId, liveRuns);
+  const coverageComplete = coverage.current.complete;
 
   const activity = useMemo<AgentActivity>(
     () => ({ activeIssueIds: workingIssueIds, coverageComplete }),
