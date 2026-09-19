@@ -313,6 +313,22 @@ describe("issue thread interaction schemas", () => {
     expect(createIssueThreadInteractionSchema.parse({ kind: "ask_user_questions", payload: complete }).payload).toMatchObject({ questionSet: { questions: expect.any(Array) } });
   });
 
+  it.each([
+    ["required", { required: false }],
+    ["answer mode", { answerMode: "multi_select" }],
+    ["option IDs", { options: [{ id: "different", label: "Blue" }] }],
+    ["option labels", { options: [{ id: "blue", label: "Red" }] }],
+    ["prompt", { prompt: "A different question?" }],
+  ])("rejects conflicting canonical %s at creation", (_name, changes) => {
+    const payload = {
+      version: 1,
+      questions: [{ id: "color", prompt: "Color?", required: true, selectionMode: "single", options: [{ id: "blue", label: "Blue" }] }],
+      questionSet: { schema: "paperclip.question_set.v1", questions: [{ id: "color", prompt: "Color?", required: true, answerMode: "single_select", options: [{ id: "blue", label: "Blue" }], ...changes }] },
+    };
+    expect(() => createIssueThreadInteractionSchema.parse({ kind: "ask_user_questions", payload })).toThrow("must match");
+    expect(askUserQuestionsPayloadSchema.parse(payload).questions).toHaveLength(1);
+  });
+
   it("rejects unsafe request_confirmation target hrefs", () => {
     const base = {
       kind: "request_confirmation",
