@@ -21,6 +21,7 @@ import {
   nativeRuntimePromptDigest,
   type NativeRuntimeContextSnapshot,
 } from "../../contracts/runtime-context.js";
+import { createCodexTaskEnvelope } from "../../contracts/codex.js";
 import { localIntegrityBoundaryGolden } from "../../../test-support/local-integrity-boundary-golden.js";
 import {
   OpenCodeServerDriver,
@@ -1455,23 +1456,25 @@ describe("OpenCodeServerDriver", () => {
     ).resolves.toMatchObject({ ok: true });
   });
 
-  it("returns a repairable tool error for wrong criteria without committing a bad semantic result", async () => {
+  it.each(["wrong", "missing", "duplicate"])("returns a repairable tool error for %s criteria without committing a bad semantic result", async (mode) => {
     await chmod(fixture, 0o755);
     const root = await mkdtemp(join(tmpdir(), "paperclip-opencode-criteria-"));
     const workspace = await mkdtemp(join(tmpdir(), "paperclip-opencode-workspace-"));
     roots.push(root, workspace);
-    const driver = new OpenCodeServerDriver({ model: "openrouter/deepseek/deepseek-v4-flash-0731", runtimeDirectory: root, command: fixture, environment: { PATH: process.env.PATH, OPENROUTER_API_KEY: "fixture-key" } });
+    const driver = new OpenCodeServerDriver({ model: "openrouter/deepseek/deepseek-v4-flash-0731", runtimeDirectory: root, command: fixture, environment: { PATH: process.env.PATH, OPENROUTER_API_KEY: "fixture-key" }, taskEnvelope: createCodexTaskEnvelope({ objective: "Apply the accepted decision", contractRevision: "approval-v2", criteria: [{ id: "human_response", requirement: "Apply the approved response" }] }) });
     const session = await driver.openSession({ runId: "criteria-repair", normalizedSessionId: "criteria-repair", workingDirectory: workspace });
-    await session.startTurn({ message: { role: "user", text: "repair-criteria" } });
+    await session.startTurn({ message: { role: "user", text: `repair-criteria-${mode}` } });
     const events = [];
     for await (const event of session.events()) events.push(event);
     const results = events.filter((event) => event.eventType === "run.result.proposed");
     expect(results).toHaveLength(1);
-    expect(results[0].payload).toMatchObject({ completionClaim: { criteria: [{ criterionId: "objective" }] } });
+    expect(events.some((event) => event.eventType === "item.completed" &&
+      (event.payload as { item?: { is_error?: boolean } }).item?.is_error === true)).toBe(true);
+    expect(results[0].payload).toMatchObject({ completionClaim: { criteria: [{ criterionId: "human_response" }] } });
     const files = await readdir(root, { recursive: true });
     const evidence = files.find((name) => name.endsWith("fake-criteria-repair.json"));
     expect(evidence).toBeDefined();
-    expect(JSON.parse(await readFile(join(root, evidence!), "utf8"))).toMatchObject({ result: { isError: true, content: [{ text: expect.stringContaining('"objective"') }] } });
+    expect(JSON.parse(await readFile(join(root, evidence!), "utf8"))).toMatchObject({ result: { isError: true, content: [{ text: expect.stringContaining('"human_response"') }] } });
     await session.close({ reason: "test" });
   });
 
