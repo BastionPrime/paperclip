@@ -90,14 +90,13 @@ export function isLiveRunCoverageComplete(
   return (liveRuns?.length ?? 0) < LIVE_RUNS_PAGE_LIMIT;
 }
 
-/** A coverage verdict and the company it was reached about. */
-export interface LiveRunCoverage {
-  /** Company the verdict describes; a different one starts the verdict over. */
-  companyId: string | null;
-  complete: boolean;
-}
+/**
+ * Coverage verdict per company: `true` while that company's live-run window is
+ * known to be whole. A company with no entry has nothing against it yet.
+ */
+export type LiveRunCoverageByCompany = ReadonlyMap<string | null, boolean>;
 
-export const INITIAL_LIVE_RUN_COVERAGE: LiveRunCoverage = { companyId: null, complete: true };
+export const INITIAL_LIVE_RUN_COVERAGE: LiveRunCoverageByCompany = new Map<string | null, boolean>();
 
 /**
  * Carry a coverage verdict forward across cache edits: once a page has arrived
@@ -109,20 +108,34 @@ export const INITIAL_LIVE_RUN_COVERAGE: LiveRunCoverage = { companyId: null, com
  * would announce a complete window while the runs the page originally hid are
  * still invisible, and tasks those runs belong to would read as idle.
  *
- * Losing a run tells us nothing about the ones we never saw, so within one
- * company the verdict only travels one way. It is per company, though: a busy
- * company says nothing about the next one, and the provider outlives the switch,
- * so changing `companyId` starts the verdict over on that company's own page.
+ * Losing a run tells us nothing about the ones we never saw, so a verdict only
+ * travels one way. It is kept per company rather than as one current verdict:
+ * a busy company must not silence the next one, and coming back to that company
+ * must not silently trust the shortened page React Query still has cached for
+ * it. Both directions matter because the provider outlives every switch.
+ *
+ * Returns `previous` unchanged when the verdict is unchanged, so the value can
+ * be compared by identity.
  */
 export function trackLiveRunCoverage(
-  previous: LiveRunCoverage,
+  previous: LiveRunCoverageByCompany,
   companyId: string | null,
   liveRuns: readonly LiveRunForIssue[] | null | undefined,
-): LiveRunCoverage {
-  const carried = previous.companyId === companyId ? previous.complete : true;
+): LiveRunCoverageByCompany {
+  const carried = previous.get(companyId) ?? true;
   const complete = carried && isLiveRunCoverageComplete(liveRuns);
-  if (complete === previous.complete && companyId === previous.companyId) return previous;
-  return { companyId, complete };
+  if (complete === previous.get(companyId)) return previous;
+  const next = new Map(previous);
+  next.set(companyId, complete);
+  return next;
+}
+
+/** Read one company's verdict. Unknown companies are treated as whole. */
+export function isCompanyLiveRunCoverageComplete(
+  coverage: LiveRunCoverageByCompany,
+  companyId: string | null,
+): boolean {
+  return coverage.get(companyId) ?? true;
 }
 
 export function collectLiveIssueIds(

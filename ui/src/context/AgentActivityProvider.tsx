@@ -6,6 +6,7 @@ import { useSharedPollingQuery, usePublishSharedQueryData } from "../hooks/useSh
 import {
   collectLiveIssueIds,
   trackLiveRunCoverage,
+  isCompanyLiveRunCoverageComplete,
   INITIAL_LIVE_RUN_COVERAGE,
   LIVE_RUNS_PAGE_LIMIT,
 } from "../lib/liveIssueIds";
@@ -73,12 +74,12 @@ export function AgentActivityProvider({ children }: { children: ReactNode }) {
   const workingIssueIds = stableIssueIds.current;
   // Latched, not recomputed: run-lifecycle events remove finished runs from this
   // same array, so a truncated page drops under the cap on its own and would
-  // otherwise start passing for a complete one. The latch is per company —
-  // this provider outlives a company switch, and a busy company says nothing
-  // about the next one.
+  // otherwise start passing for a complete one. Kept per company, because this
+  // provider outlives every switch: a busy company must not silence the next
+  // one, and coming back must not trust the page that shrank while we were away.
   const coverage = useRef(INITIAL_LIVE_RUN_COVERAGE);
   coverage.current = trackLiveRunCoverage(coverage.current, companyId, liveRuns);
-  const coverageComplete = coverage.current.complete;
+  const coverageComplete = isCompanyLiveRunCoverageComplete(coverage.current, companyId);
 
   const activity = useMemo<AgentActivity>(
     () => ({ activeIssueIds: workingIssueIds, coverageComplete }),
