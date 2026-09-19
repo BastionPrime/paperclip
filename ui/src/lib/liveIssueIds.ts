@@ -58,6 +58,33 @@ function shouldReplaceIssueStatusSnapshot(
   return !isTerminalIssueStatus(existing.status) && isTerminalIssueStatus(candidate.status);
 }
 
+/**
+ * Page size of `GET /api/companies/:companyId/live-runs`. The route clamps
+ * `limit` to this value (`readLiveRunsQueryInt(req.query.limit, 50, 50)` in
+ * `server/src/routes/agents.ts`), so no client can read a wider window.
+ */
+export const LIVE_RUNS_PAGE_LIMIT = 50;
+
+/**
+ * True when a live-run response lists *every* queued/running run in the
+ * company — i.e. the server did not hand back a full page.
+ *
+ * Reading a missing issue as "nothing is running" is only sound over a complete
+ * window. Above {@link LIVE_RUNS_PAGE_LIMIT} concurrent runs the newest page
+ * hides the rest, so absence proves nothing and callers that infer *inactivity*
+ * (the in-progress glyph, PAP-640) must fall back instead of claiming idle.
+ * Counting Live pills is unaffected: a truncated page under-counts, it never
+ * invents a live run.
+ *
+ * A response that has not arrived yet counts as complete. There is no evidence
+ * of work in hand, and starting calm beats a flash of motion on every load.
+ */
+export function isLiveRunCoverageComplete(
+  liveRuns: readonly LiveRunForIssue[] | null | undefined,
+): boolean {
+  return (liveRuns?.length ?? 0) < LIVE_RUNS_PAGE_LIMIT;
+}
+
 export function collectLiveIssueIds(
   liveRuns: readonly LiveRunForIssue[] | null | undefined,
   issues?: readonly LiveIssueStatusNode[] | null,

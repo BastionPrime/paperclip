@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { LiveRunForIssue } from "../api/heartbeats";
-import { collectLiveIssueIds, collectSubtreeLiveCounts } from "./liveIssueIds";
+import {
+  collectLiveIssueIds,
+  collectSubtreeLiveCounts,
+  isLiveRunCoverageComplete,
+  LIVE_RUNS_PAGE_LIMIT,
+} from "./liveIssueIds";
 
 function liveRun(overrides: Partial<LiveRunForIssue>): LiveRunForIssue {
   return {
@@ -18,6 +23,29 @@ function liveRun(overrides: Partial<LiveRunForIssue>): LiveRunForIssue {
     ...overrides,
   };
 }
+
+describe("isLiveRunCoverageComplete", () => {
+  function runsOfLength(length: number): LiveRunForIssue[] {
+    return Array.from({ length }, (_, index) => liveRun({ id: `run-${index}`, issueId: `issue-${index}` }));
+  }
+
+  it("treats a short page as the whole truth", () => {
+    expect(isLiveRunCoverageComplete(runsOfLength(0))).toBe(true);
+    expect(isLiveRunCoverageComplete(runsOfLength(LIVE_RUNS_PAGE_LIMIT - 1))).toBe(true);
+  });
+
+  it("treats a full page as possibly truncated", () => {
+    // The route clamps `limit` to the page size, so a full page means there may
+    // be live runs this client never saw — absence stops proving inactivity.
+    expect(isLiveRunCoverageComplete(runsOfLength(LIVE_RUNS_PAGE_LIMIT))).toBe(false);
+    expect(isLiveRunCoverageComplete(runsOfLength(LIVE_RUNS_PAGE_LIMIT + 10))).toBe(false);
+  });
+
+  it("counts an unloaded response as complete so nothing animates while loading", () => {
+    expect(isLiveRunCoverageComplete(undefined)).toBe(true);
+    expect(isLiveRunCoverageComplete(null)).toBe(true);
+  });
+});
 
 describe("collectLiveIssueIds", () => {
   it("keeps only runs linked to issues", () => {

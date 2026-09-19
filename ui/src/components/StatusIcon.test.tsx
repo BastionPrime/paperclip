@@ -104,6 +104,32 @@ describe("StatusIcon", () => {
     expect(idle).not.toContain("animate-spin");
   });
 
+  it("keeps animating when the live-run window is truncated (PAP-640)", () => {
+    // Over 50 concurrent runs the company live-run page hides the rest, so a
+    // missing issue is unknown, not idle. Fall back to the old always-animate
+    // rendering rather than claim a busy task is sitting still.
+    const truncated = renderToStaticMarkup(
+      <AgentActivityTestProvider activeIssueIds={new Set(["other-issue"])} coverageComplete={false}>
+        <StatusIcon status="in_progress" issueId="issue-1" />
+      </AgentActivityTestProvider>,
+    );
+    expect(truncated).toContain("motion-safe:animate-spin");
+
+    // Still only the in-progress status, and still nothing without an issue.
+    const otherStatus = renderToStaticMarkup(
+      <AgentActivityTestProvider activeIssueIds={new Set()} coverageComplete={false}>
+        <StatusIcon status="todo" issueId="issue-1" />
+      </AgentActivityTestProvider>,
+    );
+    expect(otherStatus).not.toContain("animate-spin");
+    const legend = renderToStaticMarkup(
+      <AgentActivityTestProvider activeIssueIds={new Set()} coverageComplete={false}>
+        <StatusIcon status="in_progress" />
+      </AgentActivityTestProvider>,
+    );
+    expect(legend).not.toContain("animate-spin");
+  });
+
   it("keeps the status picker's own option glyphs still", () => {
     // The picker lists statuses, not tasks — no issue id, so nothing spins.
     const html = renderToStaticMarkup(

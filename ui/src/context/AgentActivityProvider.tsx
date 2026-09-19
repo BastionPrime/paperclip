@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { heartbeatsApi, type LiveRunForIssue } from "../api/heartbeats";
 import { useOptionalCompany } from "./CompanyContext";
 import { useSharedPollingQuery, usePublishSharedQueryData } from "../hooks/useSharedPolling";
-import { collectLiveIssueIds } from "../lib/liveIssueIds";
+import { collectLiveIssueIds, isLiveRunCoverageComplete, LIVE_RUNS_PAGE_LIMIT } from "../lib/liveIssueIds";
 import { queryKeys } from "../lib/queryKeys";
 
 /**
@@ -18,10 +18,23 @@ import { queryKeys } from "../lib/queryKeys";
  *
  * Consumers read it through {@link useIsAgentWorkingOnIssue}; the status glyph
  * uses it to animate the in-progress icon only while work is actually moving.
+ *
+ * The live-run endpoint pages at {@link LIVE_RUNS_PAGE_LIMIT}, so the set is
+ * only a complete census of working issues while the page is not full. Above
+ * that concurrency the provider says so via `coverageComplete`, and consumers
+ * stop reading a missing issue as an idle one.
  */
-const AgentActivityContext = createContext<ReadonlySet<string> | null>(null);
+interface AgentActivity {
+  /** Issues with a queued/running run, as far as this window can see. */
+  activeIssueIds: ReadonlySet<string>;
+  /** False when the live-run window is truncated, so absence proves nothing. */
+  coverageComplete: boolean;
+}
 
-const EMPTY_ACTIVE_IDS: ReadonlySet<string> = new Set<string>();
+const AgentActivityContext = createContext<AgentActivity | null>(null);
+
+/** Outside a provider nothing is known to be running, and nothing is truncated. */
+const NO_ACTIVITY: AgentActivity = { activeIssueIds: new Set<string>(), coverageComplete: true };
 
 export function AgentActivityProvider({ children }: { children: ReactNode }) {
   const company = useOptionalCompany();
@@ -38,7 +51,8 @@ export function AgentActivityProvider({ children }: { children: ReactNode }) {
   });
   const { data: liveRuns, dataUpdatedAt: liveRunsUpdatedAt } = useQuery({
     queryKey: liveRunsQueryKey,
-    queryFn: () => heartbeatsApi.liveRunsForCompany(companyId!),
+    // Ask for the page size we test against, so a full page is unambiguous.
+    queryFn: () => heartbeatsApi.liveRunsForCompany(companyId!, { limit: LIVE_RUNS_PAGE_LIMIT }),
     enabled: sharedLiveRuns.enabled,
     refetchInterval: sharedLiveRuns.refetchInterval,
   });
@@ -51,10 +65,15 @@ export function AgentActivityProvider({ children }: { children: ReactNode }) {
   const activeIssueIds = useMemo(() => collectLiveIssueIds(liveRuns), [liveRuns]);
   const stableIssueIds = useRef(activeIssueIds);
   if (!sameMembers(stableIssueIds.current, activeIssueIds)) stableIssueIds.current = activeIssueIds;
+  const workingIssueIds = stableIssueIds.current;
+  const coverageComplete = isLiveRunCoverageComplete(liveRuns);
 
-  return (
-    <AgentActivityContext.Provider value={stableIssueIds.current}>{children}</AgentActivityContext.Provider>
+  const activity = useMemo<AgentActivity>(
+    () => ({ activeIssueIds: workingIssueIds, coverageComplete }),
+    [workingIssueIds, coverageComplete],
   );
+
+  return <AgentActivityContext.Provider value={activity}>{children}</AgentActivityContext.Provider>;
 }
 
 function sameMembers(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
@@ -66,21 +85,32 @@ function sameMembers(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 
 /**
  * True when an agent is actively working (queued or running run) on this issue.
+ *
  * Returns false without an id and outside the provider, so provider-less
- * surfaces and unit tests degrade to the calm, non-animated rendering.
+ * surfaces and unit tests degrade to the calm, non-animated rendering. When the
+ * live-run window is truncated it returns true for every issue instead: the
+ * honest answer there is "cannot tell", and the pre-PAP-640 always-animate
+ * rendering is the safe side of that — it never tells you a busy task is idle.
  */
 export function useIsAgentWorkingOnIssue(issueId: string | null | undefined): boolean {
-  const activeIssueIds = useContext(AgentActivityContext) ?? EMPTY_ACTIVE_IDS;
-  return !!issueId && activeIssueIds.has(issueId);
+  const { activeIssueIds, coverageComplete } = useContext(AgentActivityContext) ?? NO_ACTIVITY;
+  return !!issueId && (!coverageComplete || activeIssueIds.has(issueId));
 }
 
 /** Test/story seam: provide a fixed working-issue set without any data fetching. */
 export function AgentActivityTestProvider({
   activeIssueIds,
+  coverageComplete = true,
   children,
 }: {
   activeIssueIds: ReadonlySet<string>;
+  /** Pass false to simulate a truncated live-run window. */
+  coverageComplete?: boolean;
   children: ReactNode;
 }) {
-  return <AgentActivityContext.Provider value={activeIssueIds}>{children}</AgentActivityContext.Provider>;
+  const activity = useMemo<AgentActivity>(
+    () => ({ activeIssueIds, coverageComplete }),
+    [activeIssueIds, coverageComplete],
+  );
+  return <AgentActivityContext.Provider value={activity}>{children}</AgentActivityContext.Provider>;
 }
