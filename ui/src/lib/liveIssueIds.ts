@@ -78,11 +78,37 @@ export const LIVE_RUNS_PAGE_LIMIT = 50;
  *
  * A response that has not arrived yet counts as complete. There is no evidence
  * of work in hand, and starting calm beats a flash of motion on every load.
+ *
+ * This reads the array as it stands. The cached array also shrinks between
+ * fetches — `removeRunFromList` drops a run when it finishes — so a caller that
+ * holds the verdict over time must latch it with {@link latchLiveRunCoverage}
+ * rather than recompute it from a list that events have edited.
  */
 export function isLiveRunCoverageComplete(
   liveRuns: readonly LiveRunForIssue[] | null | undefined,
 ): boolean {
   return (liveRuns?.length ?? 0) < LIVE_RUNS_PAGE_LIMIT;
+}
+
+/**
+ * Carry a coverage verdict forward across cache edits: once a page has arrived
+ * full, the window stays incomplete.
+ *
+ * Run-lifecycle events edit the cached list in place — a finished run is
+ * removed from it — so a truncated page of {@link LIVE_RUNS_PAGE_LIMIT} shrinks
+ * below the cap without anyone refetching. Recomputing from that shorter array
+ * would announce a complete window while the runs the page originally hid are
+ * still invisible, and tasks those runs belong to would read as idle.
+ *
+ * Losing a run tells us nothing about the ones we never saw, so the verdict only
+ * travels one way. It resets when the provider remounts (a page load, or a
+ * company switch), which is the next point a fresh page is read from scratch.
+ */
+export function latchLiveRunCoverage(
+  previouslyComplete: boolean,
+  liveRuns: readonly LiveRunForIssue[] | null | undefined,
+): boolean {
+  return previouslyComplete && isLiveRunCoverageComplete(liveRuns);
 }
 
 export function collectLiveIssueIds(

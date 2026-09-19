@@ -4,6 +4,7 @@ import {
   collectLiveIssueIds,
   collectSubtreeLiveCounts,
   isLiveRunCoverageComplete,
+  latchLiveRunCoverage,
   LIVE_RUNS_PAGE_LIMIT,
 } from "./liveIssueIds";
 
@@ -44,6 +45,28 @@ describe("isLiveRunCoverageComplete", () => {
   it("counts an unloaded response as complete so nothing animates while loading", () => {
     expect(isLiveRunCoverageComplete(undefined)).toBe(true);
     expect(isLiveRunCoverageComplete(null)).toBe(true);
+  });
+});
+
+describe("latchLiveRunCoverage", () => {
+  function runsOfLength(length: number): LiveRunForIssue[] {
+    return Array.from({ length }, (_, index) => liveRun({ id: `run-${index}`, issueId: `issue-${index}` }));
+  }
+
+  it("keeps a complete window complete", () => {
+    expect(latchLiveRunCoverage(true, runsOfLength(3))).toBe(true);
+    expect(latchLiveRunCoverage(true, undefined)).toBe(true);
+  });
+
+  it("holds the truncated verdict after events shrink the cached page", () => {
+    // A full page means runs we never saw. `removeRunFromList` then drops a
+    // finished run from that same array without any refetch — the shorter list
+    // says nothing about the runs the page hid, so the verdict must not flip.
+    const truncated = latchLiveRunCoverage(true, runsOfLength(LIVE_RUNS_PAGE_LIMIT));
+    expect(truncated).toBe(false);
+    expect(latchLiveRunCoverage(truncated, runsOfLength(LIVE_RUNS_PAGE_LIMIT - 1))).toBe(false);
+    expect(latchLiveRunCoverage(truncated, runsOfLength(0))).toBe(false);
+    expect(latchLiveRunCoverage(truncated, undefined)).toBe(false);
   });
 });
 
