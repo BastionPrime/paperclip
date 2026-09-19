@@ -153,6 +153,7 @@ import {
   type NativeRunTrace,
 } from "./native-run-trace.js";
 import { createNativeHarnessBackupStamp } from "./native-harness-backup-stamp.js";
+import { removeNativeHarnessBackup } from "./native-harness-backup-cleanup.js";
 import { registerLiveRunnerGoalController } from "../runner-goal-control-broker.js";
 import { applyRunnerGoalPrpEvent } from "../runner-goals.js";
 import { readProcessStartedAt } from "../hot-restart.js";
@@ -11359,7 +11360,7 @@ async function createRunnerdBackendWithinSessionClaim(
 
                 const currentRoot = resolve(backupRoot, "current");
                 const previousRoot = resolve(backupRoot, "previous");
-                rmSync(previousRoot, { recursive: true, force: true });
+                removeNativeHarnessBackup(previousRoot);
                 let movedCurrent = false;
                 if (existsSync(currentRoot)) {
                   renameSync(currentRoot, previousRoot);
@@ -11379,7 +11380,7 @@ async function createRunnerdBackendWithinSessionClaim(
                   }
                 } catch (error) {
                   if (existsSync(currentRoot)) {
-                    rmSync(currentRoot, { recursive: true, force: true });
+                    removeNativeHarnessBackup(currentRoot);
                   }
                   if (
                     movedCurrent &&
@@ -11390,9 +11391,9 @@ async function createRunnerdBackendWithinSessionClaim(
                   }
                   throw error;
                 }
-                rmSync(previousRoot, { recursive: true, force: true });
+                removeNativeHarnessBackup(previousRoot);
               } finally {
-                rmSync(pendingRoot, { recursive: true, force: true });
+                removeNativeHarnessBackup(pendingRoot);
               }
             },
             {
