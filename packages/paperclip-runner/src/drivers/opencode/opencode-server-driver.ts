@@ -906,6 +906,13 @@ class OpenCodeHarnessSession implements HarnessSession {
           "Semantic result completion contract revision does not match",
         );
       }
+      const expectedIds = this.#taskEnvelope.completionContract.criteria.map((criterion) => criterion.id);
+      const receivedIds = validation.result.completionClaim.criteria.map((criterion) => criterion.criterionId);
+      if (receivedIds.length !== expectedIds.length || new Set(receivedIds).size !== receivedIds.length || receivedIds.some((id) => !expectedIds.includes(id))) {
+        // Reject at the tool boundary so the provider can repair its claim.
+        // Emitting a bad result here kills runnerd's strict outer validation.
+        throw new Error(`Semantic result criteria must contain exactly these criterionIds, once each: ${JSON.stringify(expectedIds)}. Keep contractRevision ${JSON.stringify(this.#taskEnvelope.completionContract.revision)}.`);
+      }
       const fingerprint = canonicalJson(validation.result);
       if (this.#resultFingerprint && this.#resultFingerprint !== fingerprint)
         throw new Error("A different semantic result was already committed");

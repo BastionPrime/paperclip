@@ -4128,6 +4128,13 @@ describe("native governed waits", () => {
       payload: { kind: "dynamicToolCall" },
     };
 
+    // The event consumer can lag the provider: a commentary event emitted
+    // before the tool began may be processed after its approval exists in DB.
+    // It is not proof that the approval-creating tool response has settled.
+    const commentary = { ...replayedEvent, payload: { kind: "agentMessage", channel: "progress", text: "I am invoking the connected tool." } };
+    await observation.observe(commentary, true);
+    expect(observation.consume(commentary)).toBeNull();
+
     // A failed tool is terminal too, even when its error event omits kind.
     // It must not block the later approval tool from parking this run.
     await observation.observe({ ...replayedEvent, eventType: "item.started", itemId: "failed-command", payload: { kind: "commandExecution" } }, false);

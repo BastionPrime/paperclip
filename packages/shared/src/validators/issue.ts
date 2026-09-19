@@ -1866,6 +1866,21 @@ const createIssueThreadInteractionCommon = {
   addresseeUserId: z.string().trim().min(1).nullable().optional(),
 };
 
+// Validate dual representations on creation, not when reading historical rows.
+// Otherwise a partial canonical form can hide required storage questions.
+const createAskUserQuestionsPayloadSchema = askUserQuestionsPayloadSchema.superRefine((value, ctx) => {
+  if (!value.questionSet) return;
+  const shown = new Set(value.questionSet.questions.map((question) => question.id));
+  const stored = new Set(value.questions.map((question) => question.id));
+  if (shown.size !== stored.size || [...shown].some((id) => !stored.has(id))) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["questionSet", "questions"],
+      message: "questionSet must present every questions entry with the same question IDs. Include choice questions as well as text questions; a partial form hides required answers.",
+    });
+  }
+});
+
 export const createIssueThreadInteractionSchema = z.discriminatedUnion("kind", [
   z.object({
     ...createIssueThreadInteractionCommon,
@@ -1891,7 +1906,7 @@ export const createIssueThreadInteractionSchema = z.discriminatedUnion("kind", [
     continuationPolicy: issueThreadInteractionContinuationPolicySchema
       .optional()
       .default("wake_assignee"),
-    payload: askUserQuestionsPayloadSchema,
+    payload: createAskUserQuestionsPayloadSchema,
   }),
   z.object({
     ...createIssueThreadInteractionCommon,

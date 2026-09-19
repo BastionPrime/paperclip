@@ -901,7 +901,13 @@ async function syncInDirectoryMapping(input: {
       });
       // Extract the uploaded tarball onto the already-created target directory,
       // then remove the scratch tarball.
+      const immutable = mapping.mode !== undefined && (mapping.mode & 0o222) === 0;
       const extractScript = [
+        // Content-addressed skill bundles are immutable. A resumed sandbox may
+        // already contain this exact archive with 0444 files inside 0555 dirs.
+        // Compare bytes and metadata before skipping; never mask stale content
+        // with --skip-old-files or loosen the permissions of the live bundle.
+        ...(immutable ? [`if tar -df ${shellQuote(remoteTar)} -C ${shellQuote(mapping.targetPath)} >/dev/null 2>&1; then rm -f ${shellQuote(remoteTar)}; exit 0; fi;`] : []),
         // BSD archives may revisit a directory after its parent's files. Keep
         // GNU tar from restoring a read-only skill directory's mode before all
         // of its children are extracted; final permissions remain unchanged.

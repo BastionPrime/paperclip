@@ -996,7 +996,8 @@ export function createGovernedWaitEventObservation(
     async observe(event: PrpEvent, eligible: boolean): Promise<void> {
       const currentGeneration = ++generation;
       observation = null;
-      const kind = record(event.payload).kind;
+      const payload = record(event.payload);
+      const kind = payload.kind;
       const tool = ["dynamicToolCall", "mcpToolCall", "commandExecution"].includes(String(kind));
       if (event.itemId) {
         if (tool && event.eventType === "item.started") pendingTools.add(event.itemId);
@@ -1009,7 +1010,7 @@ export function createGovernedWaitEventObservation(
       // still awaiting its response. Parking then interrupts that in-flight
       // response and cannot produce a durable suspension checkpoint.
       if (event.eventType === "item.completed" && (
-        pendingTools.size > 0 || (!tool && kind !== "agentMessage")
+        pendingTools.size > 0 || (!tool && !(kind === "agentMessage" && payload.channel === "final"))
       )) return;
       if (!eligible) return;
       const result = await resolvePending();

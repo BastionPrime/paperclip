@@ -327,6 +327,11 @@ it.skipIf(!gnuTar)("extracts interleaved read-only skill directories with GNU ta
     });
     await performSyncIn({ sandbox: sandbox as never, remoteDir, timeoutSeconds: 30,
       operations: [{ operationId: "readonly-skill", files: [{ sourcePath: source, targetPath: target, kind: "directory", mode: 0o555 }] }] });
+    // A resumed sandbox already contains the previous read-only skill bundle.
+    await fs.writeFile(path.join(target, "unrelated.txt"), "keep me");
+    await performSyncIn({ sandbox: sandbox as never, remoteDir, timeoutSeconds: 30,
+      operations: [{ operationId: "readonly-skill-resume", files: [{ sourcePath: source, targetPath: target, kind: "directory", mode: 0o555 }] }] });
+    expect(await fs.readFile(path.join(target, "unrelated.txt"), "utf8")).toBe("keep me");
     expect(await fs.readFile(path.join(target, "references", "agents", "qa.md"), "utf8")).toBe("QA instructions");
     expect((await fs.stat(path.join(target, "references", "agents"))).mode & 0o777).toBe(0o555);
     expect((await fs.stat(path.join(target, "references", "agents", "qa.md"))).mode & 0o777).toBe(0o444);

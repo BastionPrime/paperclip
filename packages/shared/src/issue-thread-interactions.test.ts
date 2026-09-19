@@ -8,6 +8,7 @@ import {
 import {
   acceptIssueThreadInteractionSchema,
   askUserQuestionsResultSchema,
+  askUserQuestionsPayloadSchema,
   createIssueThreadInteractionSchema,
   paperclipQuestionSetPayloadSchema,
   requestConfirmationPayloadSchema,
@@ -295,6 +296,21 @@ describe("issue thread interaction schemas", () => {
       ...questionSet,
       questions: [{ ...questionSet.questions[0], answerMode: "text", options: questionSet.questions[0].options }],
     })).toThrow("text questions cannot define options");
+  });
+
+  it("rejects creation of a form that hides required questions, while retaining historical readability", () => {
+    const payload = {
+      version: 1,
+      questions: [
+        { id: "club_name", prompt: "Club name?", selectionMode: "single", required: true, options: [{ id: "text", label: "Answer", freeText: true }] },
+        { id: "audience", prompt: "Audience?", selectionMode: "single", required: true, options: [{ id: "beginners", label: "Beginners" }, { id: "everyone", label: "Everyone" }] },
+      ],
+      questionSet: { schema: "paperclip.question_set.v1", questions: [{ id: "club_name", prompt: "Club name?", answerMode: "text", required: true }] },
+    };
+    expect(() => createIssueThreadInteractionSchema.parse({ kind: "ask_user_questions", payload })).toThrow("must present every questions entry");
+    expect(askUserQuestionsPayloadSchema.parse(payload).questions).toHaveLength(2);
+    const complete = { ...payload, questionSet: { ...payload.questionSet, questions: [...payload.questionSet.questions, { id: "audience", prompt: "Audience?", answerMode: "single_select", required: true, options: payload.questions[1].options }] } };
+    expect(createIssueThreadInteractionSchema.parse({ kind: "ask_user_questions", payload: complete }).payload).toMatchObject({ questionSet: { questions: expect.any(Array) } });
   });
 
   it("rejects unsafe request_confirmation target hrefs", () => {

@@ -70,6 +70,12 @@ export async function nativeCompletionFeedback(
     if (result.completionClaim.contractRevision !== current.revision) {
       throw new Error(`Stale completionClaim.contractRevision. This turn requires ${JSON.stringify(current.revision)} with criterion IDs ${JSON.stringify(current.criteria?.map((c) => c.id) ?? [])}. Reassess the current request and resubmit your report with that revision; do not repeat completed work.`);
     }
+    const expected = current.criteria?.map((criterion) => criterion.id) ?? [];
+    const received = result.completionClaim.criteria.map((criterion) => criterion.criterionId);
+    if (received.length !== expected.length || new Set(received).size !== received.length || received.some((id) => !expected.includes(id))) {
+      throw new Error(`completionClaim.criteria must contain exactly these criterion IDs, once each: ${JSON.stringify(expected)}. Keep contractRevision ${JSON.stringify(current.revision)} and correct the report without repeating completed work.`);
+    }
+
   }
   const signals = normalizePrpResultSignals(result);
   if (

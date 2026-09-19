@@ -19,6 +19,7 @@ import {
 } from "./continuation-cases.js";
 import {
   gradeContinuation,
+  isContinuationPlan,
   type ContinuationCheckpoint,
 } from "./continuation-scoring.js";
 import { createTaskThroughUi } from "./user-actions.js";
@@ -178,6 +179,11 @@ export async function runContinuationFlow(input: {
       await page.getByTestId("question-text-answer-composer").last()
         .locator('[contenteditable="true"],textarea').first().fill(scenario.answer);
     }
+    // Claude may add a separate optional Other field after its choice page.
+    // Navigate every rendered page before submitting; do not invent an answer.
+    for (let index = 1; index < set.questions.length; index += 1) {
+      await page.getByRole("button", { name: "Next", exact: true }).last().click();
+    }
     await page
       .getByRole("button", {
         name: set.submitLabel ?? "Submit answers",
@@ -195,7 +201,7 @@ export async function runContinuationFlow(input: {
   function assertWaiting() {
     const c = checkpoints.at(-1)!;
     expect(
-      c.documents.filter((d) => d.key !== "plan"),
+      c.documents.filter((d) => !isContinuationPlan(d, c)),
       "no deliverable before authorization",
     ).toHaveLength(0);
     expect(c.attachments, "no attachment before authorization").toHaveLength(0);
