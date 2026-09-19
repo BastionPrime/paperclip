@@ -1,0 +1,258 @@
+# Catalog authoring contract
+
+Index of the files and assertions a catalog-connector change has to satisfy.
+
+**Verified against Paperclip App commit `e558f25e` (15 September 2026), by
+re-reading each cited file and by running the command ladder below through the
+isolated harness.** Previously verified at `728f7185` (14 September 2026); every
+claim below survived that move, but several line numbers did not, so this
+revision cites symbols and landmarks you can grep for and keeps line numbers
+only where they are load-bearing. If the commit you read disagrees, the commit
+wins — and record the drift in your report so this file gets corrected.
+
+## Files a minimal store-visible connector touches
+
+| File | Role | Editable? |
+| --- | --- | --- |
+| `scripts/ingest-app-definitions.mjs` | Human-authored provider source. The `apps` array starts at line 180; the tuple mapper follows it (grep for `schemaVersion: 1,` inside the `.map((`, around line 795). | Yes — this is the source. |
+| `ui/public/brands/apps/<slug>.svg` | Official mark. | Yes. |
+| `ui/public/brands/apps/manifest.json` | Branding provenance: slug, provider name, `catalogVisible`, `localAsset`, optional `darkAsset`, optional `aliases`. | Yes. |
+| `packages/shared/src/app-definitions.ts` | `CONNECTABLE_APP_SLUGS` (line 6) and `APP_STORE_HIDDEN_SLUGS` (line 44). | Yes. |
+| `packages/shared/src/types/app-definition.ts` | The field contract the generator output has to satisfy. | Read-only for authoring. |
+| `packages/shared/src/app-definitions/<slug>.json` | Generated definition. | **Generated** — see the exception below. |
+| `packages/shared/src/app-definitions.generated.ts` | Generated positional registry. | **Generated.** |
+| `packages/shared/src/app-definitions.ingestion-report.json` | Generated review report. | **Generated.** |
+| `packages/shared/src/app-definitions.test.ts` | Catalog assertions, including exact counts. | Yes — update, never weaken. |
+| `packages/shared/src/self-serve-mcp-research.json` | Dated research ledger. Membership implies connectability. | Only for that programme. |
+
+The runbook's "shortest valid implementation" list omits
+`packages/shared/src/app-definitions.ts` and the ingestion report. Both are
+required for a store-visible provider.
+
+## The generated-file exception
+
+`scripts/ingest-app-definitions.mjs:1379-1396` (`reviewedGoogleSlugs`) reads nine
+definitions back from the output directory and re-emits them verbatim:
+
+```js
+for (const slug of reviewedGoogleSlugs) {
+  const existingIndex = apps.findIndex((app) => app.slug === slug);
+  if (existingIndex >= 0) apps.splice(existingIndex, 1);
+  apps.push(JSON.parse(fs.readFileSync(path.join(out, `${slug}.json`), "utf8")));
+}
+```
+
+For `gmail` and the eight `google-*` slugs the JSON file **is** the maintained
+source. For every other provider it is generated output and editing it is a
+change the next run reverts.
+
+## Generator preconditions
+
+- **Corpus.** `scripts/ingest-app-definitions.mjs:4-9` resolves
+  `PAPERCLIP_CONTENT_TEMPLATES`, defaulting to
+  `../../paperclip-content/research/connections/vercel/templates`. Line 1541-1542
+  throws `Expected 99 captures, found N` unless exactly 99 `.md` files
+  (excluding `INDEX.md`) are present. A new provider needs no capture of its
+  own; the corpus still has to be complete. The corpus lives in the
+  non-public `paperclip-content` repository: if you do not have it, this whole
+  path is closed to you and you report that rather than stubbing the guard out.
+- **Branding.** `brandingFor` (declared line 20, throws line 29) throws
+  `<slug>: missing local branding provenance` unless the slug has a manifest row
+  (only `oauth-generic` and `api-key-generic` are exempt). Branding precedes
+  generation.
+- **Method invariants** (`validateApp`): `schemaVersion === 1`; non-empty
+  `slug`, `name`, `methods`; an `api_key` tool method requires `keyPlacement`;
+  an `oauth` method requires a non-empty `ownershipModes`; a required
+  non-checkbox tenant/extension/credential field requires a `placeholder`.
+
+## Tuple shape
+
+`[slug, name, description, category, domain, urlPatterns, method|methods, extra?]`
+
+- `category` is one of `ai`, `analytics`, `commerce`, `communication`,
+  `content`, `data`, `developer`, `productivity`, `other`.
+- The 5th element (`domain`) is discarded by the mapper. `docsUrl` must go in
+  `extra`, or it is only backfilled for providers that also appear in the
+  research ledger (`ingest-app-definitions.mjs:1315`).
+- `method(key, transport, auth, defaults, riskTier, guidanceMd, extra)` fills
+  `ownershipModes` as `["customer", "dcr"]` for `oauth` and `["customer"]`
+  otherwise, plus a default `whenToUse`.
+- `featured` is a hard-coded six-slug list in the mapper. Do not add to it as
+  part of authoring a new provider.
+
+## Visibility chain
+
+```txt
+APP_DEFINITIONS (generated, all providers)
+  └─ filtered by CONNECTABLE_APP_SLUGS  ─▶ CONNECTABLE_APP_DEFINITIONS
+       └─ minus APP_STORE_HIDDEN_SLUGS  ─▶ APP_STORE_DEFINITIONS  ─▶ gallery API
+```
+
+`GET /api/companies/:companyId/tools/apps` returns `APP_STORE_DEFINITIONS`
+directly (`server/src/routes/tool-access.ts:831`). There is no company-scoped
+definition store, and `connectToolAppSchema` accepts a `galleryKey` or a `link`
+and nothing else (`packages/shared/src/validators/tool-access.ts:472-474`). A
+catalog connector is therefore always a shared-source change.
+
+## Assertions with exact counts or sets
+
+These fail on any addition. Update them deliberately.
+
+| Assertion | Location | What breaks |
+| --- | --- | --- |
+| `expect(APP_STORE_DEFINITIONS).toHaveLength(46)` | `app-definitions.test.ts:689`, in `it("withholds unverified and reserved providers …")` | Any new store-visible provider. Bump the count. |
+| `catalogVisible` manifest set must equal the store-visible definition set, and asset paths must equal `branding` values | same test, from line 716 (`manifest.providers.filter(… catalogVisible)`) | A manifest row without a definition, or the reverse. Also enforces PNG ≥ 128×128 and rejects script/`foreignObject`/event handlers in SVG. |
+| Required non-advanced tenant/extension fields enumerated in a short allowlist | `app-definitions.test.ts` around line 905 (`field.required && field.advanced !== true && !field.hidden`) | Any visible required field on the default path. Prefer making the field optional or advanced with a default. |
+| `expect(SELF_SERVE_MCP_CANDIDATES).toHaveLength(43)` | `app-definitions.test.ts:280` | Adding a provider to the research ledger. |
+| Ledger entry count with a fixed `verifiedAt` (`"2026-08-26"` at this commit) | `app-definitions.test.ts:434-435` | Same. Also requires HTTPS `docsUrl`/`serverUrl`, a non-empty `authMode`, a prerequisite longer than 10 characters, and a valid tier. |
+| `APP_STORE_HIDDEN_SLUGS` exact sorted list | `app-definitions.test.ts:666-688` | Hiding a provider. Hidden slugs must still be connectable. |
+| Method and field invariants across the whole catalog | `it("enforces method and field invariants")`, `app-definitions.test.ts:961` | A missing `keyPlacement`, empty `ownershipModes`, or a required credential field with no placeholder. |
+
+The provider-slug membership check above those uses `arrayContaining`, so an
+addition does not break it. Confirmed at `e558f25e`: adding one store-visible
+provider failed exactly one assertion, the count at line 689.
+
+## Network and deployment guard
+
+A private, loopback or reserved MCP address is accepted only when the deployment
+is *not* both authenticated and publicly exposed; link-local egress is denied in
+every mode.
+
+```ts
+// server/src/services/tool-access.ts:3175-3180 (and tool-gateway.ts:3132-3137)
+function allowPrivateRemoteEndpoints() {
+  return (
+    options.deploymentMode !== "authenticated" ||
+    options.deploymentExposure !== "public"
+  );
+}
+```
+
+`DEPLOYMENT_MODES` is `["local_trusted", "authenticated"]` and
+`DEPLOYMENT_EXPOSURES` is `["private", "public"]`
+(`packages/shared/src/constants.ts:4-8`). The check runs inside
+`guardedRemoteHttpFetch` at dial time rather than as a standalone pre-flight,
+which is what closes the DNS-rebinding window — so a same-machine desktop MCP
+endpoint is a local-deployment capability, not a configuration flag to widen.
+Report it as an unsupported deployment shape instead.
+
+## Access defaults
+
+```ts
+// packages/shared/src/app-definitions.ts:245-257
+export function recommendedDefaultsForApp(app, methodKey) {
+  void app;
+  void methodKey;
+  return { access: "all_agents", askFirstRiskLevels: [] };
+}
+```
+
+Uniform and open for every provider, method and tier: every discovered action is
+enabled and every active action defaults to **Allowed**, including `write` and
+`destructive`. This is an opt-in restriction model — finishing a connection is a
+configure-authorized, audited operation and **Ask first** stays available
+afterwards. Do not compensate by misclassifying a tool, and do not change this
+function in a provider change.
+
+Changed-action quarantine activates when a *connection* sets
+`quarantineNewEntries`. It is not an `AppDefinition` field; declaring it in a
+manifest does nothing.
+
+## Transport boundaries
+
+| Transport | Manifest-only? | Boundary |
+| --- | --- | --- |
+| `mcp_remote` | Yes | First-class: discovery, health, catalog, gateway, OAuth, credential projection. |
+| `local_stdio` | Only via a registered template | Reported unsupported outside `local_trusted` mode or a configured trusted runtime host (`server/src/services/tool-access.ts:4788-4789`). Never put a bare command in a definition. |
+| `rest_api` | No | Not exposed through the connected MCP gateway. Needs an execution adapter first. |
+
+`api_key` is an authentication mode, not a transport. Most API-key catalog
+entries authenticate a remote MCP server.
+
+Header credentials and secret-bearing generated URLs have the complete generic
+runtime path. The schema also accepts `query`, `body_json` and `env` placements,
+but schema acceptance is not proof the gateway projects them — trace the
+invocation path and add an end-to-end fixture before shipping one.
+
+## OAuth endpoint precedence
+
+1. A **complete** `authorizationEndpoint` + `tokenEndpoint` pair in the method's
+   `defaults` is used unconditionally. Discovery never runs, and endpoints
+   stored on the connection and `401` challenge hints are not consulted at all.
+2. Otherwise, for `mcp_remote`, endpoints already stored on the connection (then
+   the challenge hints, field by field) are used if they form a complete pair.
+3. Only then does the RFC 9728 → RFC 8414 discovery chain run.
+
+So a complete manifest pair is authoritative and outlives its own accuracy.
+Ship `serverUrl` alone for a discovery-capable provider.
+
+Client resolution order, independent of the above: deployment-preconfigured
+client, Client ID Metadata Document (needs a public HTTPS base URL), RFC 7591
+dynamic registration, then an operator-supplied client. For a curated method,
+`ownershipModes` gates only the curated path — omit `dcr` for a provider
+Paperclip must not auto-register.
+
+## Command ladder
+
+Deterministic, no vendor account:
+
+```sh
+node scripts/check-app-brand-assets.mjs
+node --test scripts/app-brand-validation.test.mjs
+pnpm connections:ingest-app-definitions          # honours PAPERCLIP_CONTENT_TEMPLATES
+pnpm exec vitest run \
+  packages/shared/src/app-definitions.test.ts \
+  packages/shared/src/app-definitions-url.test.ts
+pnpm --filter @paperclipai/shared typecheck
+```
+
+Wider, when the change reaches server or UI code:
+
+```sh
+pnpm exec vitest run \
+  server/src/__tests__/tool-access-service.test.ts \
+  server/src/__tests__/generic-mcp-connection.test.ts \
+  server/src/__tests__/tool-connection-removal.test.ts \
+  ui/src/pages/apps/AppsConnect.test.tsx \
+  ui/src/pages/apps/Browse.test.tsx
+pnpm check:token-gates
+pnpm -r typecheck
+```
+
+`server/src/__tests__/generic-mcp-connection.test.ts` stands up an in-process
+MCP server and authorization server, so the OAuth path is exercisable with no
+network and no credentials. Extend it with a fixture rather than reaching for a
+real account.
+
+Diff review before handing off:
+
+```sh
+git diff --check
+git status --short
+git diff -- scripts/ingest-app-definitions.mjs \
+  packages/shared/src/app-definitions \
+  packages/shared/src/app-definitions.generated.ts \
+  ui/public/brands/apps
+```
+
+`app-definitions.generated.ts` uses positional imports (`a0`, `a1`, …), so
+inserting one provider renumbers every later import — roughly 50 diff lines for
+a one-provider change. That is correct output, not churn to fix. Moving the
+tuple to the end of the tuple list does not avoid it, because several providers
+are appended to `apps` after that list.
+
+## Account-bound lifecycle (not deterministic)
+
+Required once per exposed method before a provider is store-ready, and outside
+this skill's authority without explicit approval: preflight on public metadata
+only; connect; catalog listing compared against reviewed expectations; one
+narrow read; write-classification check; one call through an actual run-scoped
+gateway; refresh and reconnect; revoke and confirm calls fail closed; reconnect
+after removal; and a credential scan across responses, logs, activity, audit and
+every evidence artifact.
+
+Record only provider and method key, date, environment, endpoint origin and
+path, non-sensitive connection ID, tool names and counts, policy result,
+redacted outcome codes, and revoke/reconnect outcome. Never record token values,
+secret-bearing URLs, authorization codes, provider session detail, personal
+email, tenant content, HAR files, or pre-callback screenshots.
