@@ -771,3 +771,16 @@ confirmed discovery on `2.1.277`. The workflow pin and local qualifier are check
 together. This change applies to local cells; Daytona images remain separately pinned.
 Continuation question flows also wait for the submitted interaction's durable
 `answered` state before considering the next checkpoint ready.
+
+### Worker prerequisites
+
+The trusted default-branch workflow provisions the local Codex sandbox for both
+native Codex and ACPX Codex. It prepares the pinned Python artifact oracle only
+for everyday stories that execute a downloaded ZIP; skill creation and service
+questions do not need that oracle. Catalog coverage tests keep this list aligned
+with the test flow. Native provider runs do not require an unrelated host
+`claude` or `codex` CLI for version probing.
+
+Changes to privileged worker setup must reach the default branch before a
+branch-targeted paid campaign can exercise them. The report job resolves its
+lockfile from its own trusted checkout, never from the tested branch.

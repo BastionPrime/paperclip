@@ -18,7 +18,7 @@ import {
   StoryDecisionError,
   type StoryInteraction,
 } from "./everyday-decisions.js";
-import { LATE_REQUIREMENT, SLUGIFY_REVISION } from "./everyday-cases.js";
+import { LATE_REQUIREMENT, SLUGIFY_REVISION, requiresEverydayArtifactOracle } from "./everyday-cases.js";
 import {
   isActiveStoryRun,
   isStoryWorkspaceDeferral,
@@ -502,11 +502,8 @@ export async function runEverydayFlow(input: Input) {
     await mkdir(path.join(input.privateDir, "snapshots"), { recursive: true });
     const revision = await runCommand("git", ["rev-parse", "HEAD"]);
     if (revision.code === 0) ev.sourceRevision = revision.stdout.trim();
-    const version = await runCommand(
-      execution.profile.provider === "acpx" ? "claude" : "codex",
-      ["--version"],
-    );
-    if (version.code === 0) ev.providerVersion = version.stdout.trim();
+    // Native providers run the packaged runtime (possibly remotely). A host
+    // `claude`/`codex` binary is neither required nor its observed version.
     const harnessFiles = [
       "everyday-flow.ts",
       "everyday-cases.ts",
@@ -536,7 +533,7 @@ export async function runEverydayFlow(input: Input) {
           .join("\n"),
       )
       .digest("hex");
-    if (!caseId.startsWith("service-") && !decliningConnection) {
+    if (requiresEverydayArtifactOracle(caseId)) {
       try {
         const sandbox = await runCommand(process.env.PYTHON ?? "python3", [
           path.join(import.meta.dirname, "everyday-artifact.py"), "--preflight",
