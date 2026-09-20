@@ -33,7 +33,10 @@ Paperclip Cloud account, no managed Cloud OAuth client, and no Paperclip-operate
 infrastructure. Cloud is covered as a third deployment shape, not as the
 reference implementation. Where the two diverge, the divergence is written down
 in [`references/deployment-support-matrix.md`](references/deployment-support-matrix.md)
-with the guard or document behind it.
+with the guard or document behind it. Where that file says `verified`, the run
+behind it — commands, observed output, and the correlated agent run — is in
+[`references/verification-log.md`](references/verification-log.md), so you can
+redo it rather than take the label on trust.
 
 ## Use This When
 

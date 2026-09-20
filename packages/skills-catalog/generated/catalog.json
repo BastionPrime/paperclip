@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "packageName": "@paperclipai/skills-catalog",
   "packageVersion": "0.3.1",
-  "generatedAt": "2026-09-19T16:58:28.123Z",
+  "generatedAt": "2026-09-20T19:50:57.718Z",
   "skills": [
     {
       "id": "paperclipai:bundled:docs:doc-maintenance",
@@ -1165,11 +1165,11 @@
         {
           "path": "references/offline-verification.md",
           "kind": "reference",
-          "sizeBytes": 9519,
-          "sha256": "ca38bcddf376aa1bc2ea5f392032c37cda204af21a412ec4b6e984343087c2e2"
+          "sizeBytes": 16768,
+          "sha256": "296f08e6249687255162eb3afee40e51992ae1f5a86677594e63e95f91ebdaf2"
         }
       ],
-      "contentHash": "sha256:c7a267d390dee25ac65750b46f9aaad69993e08eb42c8133bf52a05701a6953a"
+      "contentHash": "sha256:26c08b6917c5bf80dc6b99b62f177746bfafed458905182782aa14652e0c3b84"
     },
     {
       "id": "paperclipai:optional:software-development:connect-agent-tools",
@@ -1202,8 +1202,8 @@
         {
           "path": "SKILL.md",
           "kind": "skill",
-          "sizeBytes": 26730,
-          "sha256": "7fa19dc00395a5b8214f1a725c259dd1aa97ce580a43d0f8b8a13d2586c83bbb"
+          "sizeBytes": 26975,
+          "sha256": "13ea45dccab92a5f7dfdd67baa5ffe2952987cbad7fa085cff8de5d0c5fc53ed"
         },
         {
           "path": "references/chat-and-email.md",
@@ -1214,11 +1214,17 @@
         {
           "path": "references/deployment-support-matrix.md",
           "kind": "reference",
-          "sizeBytes": 20738,
-          "sha256": "fa7b868c2c3997e5433ad4845738d7092dc2a7f621e420d7a28dbf1f29e7c2b5"
+          "sizeBytes": 21348,
+          "sha256": "7afb36d0e2baa4e3920d83332f539b332267ae63e41194dfcbfd145f48addb67"
+        },
+        {
+          "path": "references/verification-log.md",
+          "kind": "reference",
+          "sizeBytes": 25233,
+          "sha256": "56cd4452bd75ad646113c1f62926aa6f2b2f965db2d1e9adea350afe60c55b14"
         }
       ],
-      "contentHash": "sha256:ab06d5fcaa0ce39865e53d9ee45345cc07d72f4be51ce201d13b195e4f8872ba"
+      "contentHash": "sha256:15e41bb565bafee8b284fa21e32948a191e828f5956ee641ffe641d11804bd58"
     },
     {
       "id": "paperclipai:optional:software-development:prepare-mcp-integration",

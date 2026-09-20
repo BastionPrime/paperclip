@@ -102,8 +102,10 @@ third-party public server with `auth: "none"`.
 `unsupported`, and none of it is inferred from a self-hosted result. The same
 honesty runs in reverse: a shape-A pass is not shape-B evidence.
 
-Full reproduction, run IDs, and provider-side artifacts:
-[`PAP-18465-SELF-HOSTED-VERIFICATION.md`](../../PAP-18465-SELF-HOSTED-VERIFICATION.md).
+Full reproduction — instance configuration, the disposable provider, all nine
+runbook scenarios with their commands and observed output, the correlated run
+ids, the provider-side artifact, and every finding below in detail — ships in
+this package: [`verification-log.md`](./verification-log.md).
 
 ## Matrix
 
@@ -195,11 +197,13 @@ public HTTPS origin. Do not tell them Cloud is the only answer, and do not embed
 a server tutorial in the wizard — link maintained setup documentation
 (`CHAT-CONNECTOR-UX.md:81-84`).
 
-## Two findings that change what you should tell an operator
+## Three findings that change what you should tell an operator
 
 These are reproducible product behaviours at commit `9335b7db10`, not advice.
-Both are filed for product engineering; until they change, the skill's guidance
-has to account for them.
+Until they change, the skill's guidance has to account for them. Each one below
+has its executed reproduction and a suggested fix in
+[`verification-log.md`](./verification-log.md) §4, along with six further
+findings that do not change the advice.
 
 ### F1 — a pasted MCP server can widen its own permissions after approval
 
@@ -263,8 +267,8 @@ on the path the skill recommends.
 | --- | --- | --- |
 | Cloud parity for every row above | No Cloud instance was reachable, and the self-hosted-first priority defers it | Operator with a Cloud instance, after self-hosted |
 | OAuth (DCR / CIMD / own client) on any shape | Needs an authorized provider account | Operator with a provider account |
-| `local_stdio` execution | The live `supportMatrix` says shape A supports it, which is not the same as running it | Follow-up under [PAP-18464](/PAP/issues/PAP-18464) |
-| Chat and email inbound delivery | Out of scope for the first pass | Follow-up under [PAP-18464](/PAP/issues/PAP-18464) |
+| `local_stdio` execution | The live `supportMatrix` says shape A supports it, which is not the same as running it | Unclaimed. Needs a shape-A operator to create one `local_stdio` connection from an approved template and run a gateway call through it. Everything needed is in [`verification-log.md`](./verification-log.md) §1 and §3; swap the transport. |
+| Chat and email inbound delivery | Out of scope for the first pass | Unclaimed. Needs an operator with a chat provider and a decision on inbound mechanism — see [`chat-and-email.md`](./chat-and-email.md) for the questions to settle first. |
 | Shape-B write execution and provider-side readback | The shape-B provider is read-only | Operator with a writable third-party provider |
 | Link-local denial | Source-cited only; no live call | Low priority — the guard is unconditional |
 

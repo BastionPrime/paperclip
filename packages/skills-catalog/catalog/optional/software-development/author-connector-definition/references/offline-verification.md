@@ -25,8 +25,41 @@ if you prefer to run it as a script.
 Save as `make-harness.sh` outside the App checkout, then:
 
 ```sh
-./make-harness.sh <app-repo> <commit-ish> <out-dir> <corpus-dir>
+./make-harness.sh <app-repo> <commit-ish> <corpus-dir> [out-dir]
 ```
+
+Omit `[out-dir]` and the script allocates a fresh directory for you. That is the
+recommended form.
+
+### The script deletes nothing
+
+An earlier revision of this recipe took the output directory as a required
+argument and opened with `rm -rf "$OUT"`. That is a foot-gun: a contributor who
+typed `/`, their checkout path, or any directory they cared about lost it before
+verification started. The recipe below has no `rm -rf` on a caller-supplied
+path, and no `rm` of any kind outside a directory it created itself.
+
+The rules it follows:
+
+| Input | What happens |
+| --- | --- |
+| No `out-dir` given | `mktemp -d` allocates a fresh unique directory. |
+| A relative path | Refused. It resolves against the current directory, which is too easy to get wrong. |
+| `/` | Refused. |
+| A path that already exists — file or directory, empty or not | Refused. Pass a new path or omit the argument. |
+| A symlink | Refused before anything is read or written through it. |
+| A path whose parent does not exist | Refused. The script creates one level, never a tree. |
+| A path inside the App checkout or the corpus | Refused after resolving the parent with `pwd -P`, so `..` and symlinked parents cannot slip past. |
+| Anything else | `mkdir` creates it — not `mkdir -p`, so a race that creates it first is an error, not a silent reuse. |
+
+Refusing every existing destination is what makes this safe, and it is why the
+list above is short: `/`, the repository, and "some directory I cared about" are
+all the same case. Nothing needs to decide which existing directories are
+precious, because none of them are accepted.
+
+The two helper scripts the harness writes each drop a marker file in their own
+root and refuse to run without it, so neither can operate on your checkout if
+you run it from the wrong directory.
 
 <details>
 <summary><code>make-harness.sh</code></summary>
@@ -36,25 +69,67 @@ Save as `make-harness.sh` outside the App checkout, then:
 # Build an isolated harness that runs the real catalog generator, the real brand
 # validators, and the real catalog tests against a copy of a pinned commit.
 #
-# Nothing in the App checkout is modified: files are exported with `git archive`
-# and `git show`, and node_modules is symlinked read-only.
+# This script deletes nothing. Nothing in the App checkout is modified: files
+# are exported with `git archive` and `git show`, and node_modules is symlinked
+# read-only.
 #
 # Usage:
-#   make-harness.sh <app-repo> <commit-ish> <out-dir> <corpus-dir>
+#   make-harness.sh <app-repo> <commit-ish> <corpus-dir> [out-dir]
+#
+# With no [out-dir] a fresh directory is allocated with `mktemp -d`. With one,
+# the path must be absolute and must not exist: the script creates it, and
+# refuses every other case rather than clearing anything.
 
 set -euo pipefail
 
 APP_REPO=${1:?app repo path}
 COMMIT=${2:?commit-ish}
-OUT=${3:?output dir}
-CORPUS=${4:?ingestion corpus dir}
+CORPUS=${3:?ingestion corpus dir}
+OUT=${4:-}
 
-[ -d "$CORPUS" ] || { echo "corpus not found: $CORPUS" >&2; exit 1; }
-[ -d "$APP_REPO/node_modules" ] || { echo "install dependencies in $APP_REPO first" >&2; exit 1; }
+die() { printf 'make-harness: %s\n' "$*" >&2; exit 2; }
+
+[ -d "$APP_REPO" ] || die "app repo not found: $APP_REPO"
+[ -d "$CORPUS" ] || die "corpus not found: $CORPUS"
+[ -d "$APP_REPO/node_modules" ] || die "install dependencies in $APP_REPO first"
+
+APP_REPO_REAL=$(cd "$APP_REPO" && pwd -P)
+CORPUS_REAL=$(cd "$CORPUS" && pwd -P)
+
+# --- allocate the output directory -------------------------------------------
+# Every branch below either creates a new directory or refuses. There is no
+# path through this block that removes anything.
+if [ -z "$OUT" ]; then
+  OUT=$(mktemp -d "${TMPDIR:-/tmp}/paperclip-harness.XXXXXXXX")
+  echo "allocated a fresh harness directory: $OUT"
+else
+  case $OUT in
+    /*) ;;
+    *) die "out-dir must be an absolute path, got '$OUT'" ;;
+  esac
+  OUT=${OUT%/}
+  [ -n "$OUT" ] || die "refusing the filesystem root as out-dir"
+  # -L first: a dangling symlink is invisible to -e.
+  if [ -L "$OUT" ]; then die "out-dir is a symlink, refusing to write through it: $OUT"; fi
+  if [ -e "$OUT" ]; then die "out-dir already exists: $OUT (pass a new path, or omit it to allocate a fresh one)"; fi
+  PARENT=$(dirname "$OUT")
+  [ -d "$PARENT" ] || die "parent directory does not exist: $PARENT"
+  # Resolve the parent so `..` and symlinked parents cannot escape the checks.
+  OUT="$(cd "$PARENT" && pwd -P)/$(basename "$OUT")"
+  case $OUT/ in
+    "$APP_REPO_REAL"/*) die "out-dir is inside the App checkout: $OUT" ;;
+    "$CORPUS_REAL"/*) die "out-dir is inside the corpus: $OUT" ;;
+  esac
+  # mkdir, not `mkdir -p`: if something created the path in the meantime, stop.
+  mkdir "$OUT" || die "could not create $OUT"
+fi
 
 SHA=$(git -C "$APP_REPO" rev-parse "$COMMIT")
-rm -rf "$OUT"; mkdir -p "$OUT/gen/scripts" "$OUT/vt/packages/shared" "$OUT/vt/ui/public/brands"
-echo "$SHA" > "$OUT/PINNED_COMMIT"
+mkdir -p "$OUT/gen/scripts" "$OUT/vt/packages/shared" "$OUT/vt/ui/public/brands"
+printf '%s\n' "$SHA" > "$OUT/PINNED_COMMIT"
+# Markers. The helper scripts below refuse to run without the one for their root.
+: > "$OUT/gen/.paperclip-harness-gen"
+: > "$OUT/vt/.paperclip-harness-vt"
 
 # --- generator harness -------------------------------------------------------
 for f in scripts/ingest-app-definitions.mjs \
@@ -81,6 +156,10 @@ cat > "$OUT/gen/verify-fidelity.sh" <<'FIDELITY'
 # Regenerate from the pristine source and prove the harness reproduces the
 # checked-in output exactly. Run this BEFORE applying your own change.
 set -euo pipefail
+# The generator writes into its working directory. Refuse to run anywhere but
+# the harness root, so a wrong `cd` cannot regenerate over a real checkout.
+[ -f .paperclip-harness-gen ] || {
+  echo "run this from the harness gen root (no .paperclip-harness-gen here)" >&2; exit 2; }
 : "${PAPERCLIP_CONTENT_TEMPLATES:?point this at the ingestion corpus}"
 node scripts/ingest-app-definitions.mjs
 diff -rq .baseline-definitions packages/shared/src/app-definitions
@@ -103,7 +182,14 @@ cat > "$OUT/vt/sync-from-gen.sh" <<'SYNC'
 # tests run against exactly what you generated.
 set -euo pipefail
 GEN=${1:?path to the gen harness}
-rm -rf ui/public/brands/apps && mkdir -p ui/public/brands
+# Both ends must be harness roots. The only `rm` below is a fixed relative path
+# under a directory these two markers prove is a harness, never a checkout.
+[ -f .paperclip-harness-vt ] || {
+  echo "run this from the harness vt root (no .paperclip-harness-vt here)" >&2; exit 2; }
+[ -f "$GEN/.paperclip-harness-gen" ] || {
+  echo "not a harness gen root: $GEN" >&2; exit 2; }
+mkdir -p ui/public/brands
+rm -rf ./ui/public/brands/apps
 cp -r "$GEN/ui/public/brands/apps" ui/public/brands/apps
 cp "$GEN/packages/shared/src/app-definitions.ts" packages/shared/src/app-definitions.ts
 cp "$GEN/packages/shared/src/app-definitions.generated.ts" packages/shared/src/app-definitions.generated.ts
@@ -120,14 +206,66 @@ echo "  vitest:    $OUT/vt/packages/shared"
 </details>
 
 ```text
-harness ready at /tmp/harness (pinned e558f25e99020b8ab762b91a8eabb0fe383f993f)
-  generator: /tmp/harness/gen
-  vitest:    /tmp/harness/vt/packages/shared
+$ ./make-harness.sh <app-repo> HEAD <corpus-dir>
+allocated a fresh harness directory: /tmp/paperclip-harness.NWeZ7RkG
+harness ready at /tmp/paperclip-harness.NWeZ7RkG (pinned 2a99de80ec52db01eead901f28323926ceaf3c1d)
+  generator: /tmp/paperclip-harness.NWeZ7RkG/gen
+  vitest:    /tmp/paperclip-harness.NWeZ7RkG/vt/packages/shared
+
+$ ./make-harness.sh <app-repo> HEAD <corpus-dir> /tmp/named-harness
+harness ready at /tmp/named-harness (pinned 2a99de80ec52db01eead901f28323926ceaf3c1d)
+  generator: /tmp/named-harness/gen
+  vitest:    /tmp/named-harness/vt/packages/shared
 ```
 
-The output above is from a run at Paperclip App commit `e558f25e` on
-15 September 2026, Node v24.20.0. The harness was previously exercised at
-`728f7185`; the recipe did not need changing between the two.
+Both forms above are from runs on 20 September 2026 at Paperclip App commit
+`2a99de80ec`, Node v24.20.0, bash 5. The recipe was previously exercised at
+`728f7185` and `e558f25e` under its older signature; the only change since is
+the output-directory handling.
+
+### The refusals, executed
+
+Every unsafe input below was run against a **real** path, each with a canary
+file where a directory was involved. Nothing was deleted: the canaries, the App
+checkout, and `/` were all intact afterwards.
+
+```text
+$ make-harness.sh <app-repo> HEAD <corpus> /
+make-harness: refusing the filesystem root as out-dir                              exit 2
+
+$ make-harness.sh <app-repo> HEAD <corpus> <app-repo>
+make-harness: out-dir already exists: <app-repo>
+              (pass a new path, or omit it to allocate a fresh one)                exit 2
+
+$ make-harness.sh <app-repo> HEAD <corpus> /tmp/canary/existing
+make-harness: out-dir already exists: /tmp/canary/existing
+              (pass a new path, or omit it to allocate a fresh one)                exit 2
+
+$ make-harness.sh <app-repo> HEAD <corpus> relative-harness
+make-harness: out-dir must be an absolute path, got 'relative-harness'             exit 2
+
+$ make-harness.sh <app-repo> HEAD <corpus> /tmp/canary/link       # → symlink-target
+make-harness: out-dir is a symlink, refusing to write through it: /tmp/canary/link exit 2
+
+$ make-harness.sh <app-repo> HEAD <corpus> <app-repo>/tmp-harness
+make-harness: out-dir is inside the App checkout: <app-repo>/tmp-harness           exit 2
+
+$ make-harness.sh <app-repo> HEAD <corpus> /tmp/no/such/parent/out
+make-harness: parent directory does not exist: /tmp/no/such/parent                 exit 2
+```
+
+The two helper guards were exercised the same way, by running each from the App
+checkout instead of its own harness root:
+
+```text
+$ cd <app-repo> && <out-dir>/gen/verify-fidelity.sh
+run this from the harness gen root (no .paperclip-harness-gen here)                exit 2
+
+$ cd <app-repo> && <out-dir>/vt/sync-from-gen.sh <out-dir>/gen
+run this from the harness vt root (no .paperclip-harness-vt here)                  exit 2
+```
+
+`git status` in the App checkout was empty after all nine runs.
 
 Two roots, because they have different working directories:
 
@@ -148,9 +286,12 @@ PAPERCLIP_CONTENT_TEMPLATES=<corpus-dir> ./verify-fidelity.sh
 ```
 
 ```text
-Parsed 99 captures and 179 states; emitted 70 Wave 1 definitions and flagged 63 states for review.
+Parsed 99 captures and 179 states; emitted 72 Wave 1 definitions and flagged 63 states for review.
 fidelity OK: harness reproduces the checked-in output byte-for-byte
 ```
+
+That is today's run at `2a99de80ec`. The definition count tracks the commit —
+it was 70 at `e558f25e` — so compare the `fidelity OK` line, not the number.
 
 The corpus is in the non-public `paperclip-content` repository. Without it the
 generator refuses to run and this harness cannot be built — report that as a
@@ -190,6 +331,20 @@ AssertionError: expected [ { schemaVersion: 1, …(8) }, …(46) ] to have a len
 Test Files  2 passed (2)
      Tests  27 passed (27)
 ```
+
+The same two suites run green through a clean harness before you change
+anything. On 20 September 2026 at `2a99de80ec`, straight after
+`sync-from-gen.sh`:
+
+```text
+ RUN  v4.1.11 /tmp/named-harness/vt/packages/shared
+
+ Test Files  2 passed (2)
+      Tests  28 passed (28)
+   Duration  632ms
+```
+
+Establish that baseline first. A red suite you did not cause is not your result.
 
 Also diff the generated registry and confirm the only changes are positional.
 At this commit one inserted provider moved 125 lines of `a<N>` imports in
