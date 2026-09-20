@@ -43,13 +43,13 @@ The rules it follows:
 
 | Input | What happens |
 | --- | --- |
-| No `out-dir` given | `mktemp -d` allocates a fresh unique directory. |
+| No `out-dir` given | `mktemp -d` allocates a fresh unique directory under `TMPDIR`. The temp root is checked for containment *before* `mktemp` runs, so a refusal leaves nothing behind. |
 | A relative path | Refused. It resolves against the current directory, which is too easy to get wrong. |
 | `/` | Refused. |
 | A path that already exists — file or directory, empty or not | Refused. Pass a new path or omit the argument. |
 | A symlink | Refused before anything is read or written through it. |
 | A path whose parent does not exist | Refused. The script creates one level, never a tree. |
-| A path inside the App checkout or the corpus | Refused after resolving the parent with `pwd -P`, so `..` and symlinked parents cannot slip past. |
+| A path inside the App checkout or the corpus | Refused after resolving with `pwd -P`, so `..` and symlinked parents cannot slip past. The same check applies to `TMPDIR`, so the allocated form cannot land in a source tree either. |
 | Anything else | `mkdir` creates it — not `mkdir -p`, so a race that creates it first is an error, not a silent reuse. |
 
 Refusing every existing destination is what makes this safe, and it is why the
@@ -96,11 +96,25 @@ die() { printf 'make-harness: %s\n' "$*" >&2; exit 2; }
 APP_REPO_REAL=$(cd "$APP_REPO" && pwd -P)
 CORPUS_REAL=$(cd "$CORPUS" && pwd -P)
 
+# Applied to both branches below. An allocated TMPDIR can sit inside the
+# checkout just as easily as a path somebody typed.
+assert_outside() {
+  case $1/ in
+    "$APP_REPO_REAL"/|"$APP_REPO_REAL"/*) die "$2 is inside the App checkout: $1" ;;
+    "$CORPUS_REAL"/|"$CORPUS_REAL"/*) die "$2 is inside the corpus: $1" ;;
+  esac
+}
+
 # --- allocate the output directory -------------------------------------------
 # Every branch below either creates a new directory or refuses. There is no
 # path through this block that removes anything.
 if [ -z "$OUT" ]; then
-  OUT=$(mktemp -d "${TMPDIR:-/tmp}/paperclip-harness.XXXXXXXX")
+  # Check the temp root *before* mktemp, so a refusal leaves nothing behind.
+  TMPROOT=${TMPDIR:-/tmp}
+  [ -d "$TMPROOT" ] || die "TMPDIR does not exist: $TMPROOT"
+  TMPROOT=$(cd "$TMPROOT" && pwd -P)
+  assert_outside "$TMPROOT" "TMPDIR"
+  OUT=$(mktemp -d "$TMPROOT/paperclip-harness.XXXXXXXX")
   echo "allocated a fresh harness directory: $OUT"
 else
   case $OUT in
@@ -116,10 +130,7 @@ else
   [ -d "$PARENT" ] || die "parent directory does not exist: $PARENT"
   # Resolve the parent so `..` and symlinked parents cannot escape the checks.
   OUT="$(cd "$PARENT" && pwd -P)/$(basename "$OUT")"
-  case $OUT/ in
-    "$APP_REPO_REAL"/*) die "out-dir is inside the App checkout: $OUT" ;;
-    "$CORPUS_REAL"/*) die "out-dir is inside the corpus: $OUT" ;;
-  esac
+  assert_outside "$OUT" "out-dir"
   # mkdir, not `mkdir -p`: if something created the path in the meantime, stop.
   mkdir "$OUT" || die "could not create $OUT"
 fi
@@ -253,6 +264,28 @@ make-harness: out-dir is inside the App checkout: <app-repo>/tmp-harness        
 $ make-harness.sh <app-repo> HEAD <corpus> /tmp/no/such/parent/out
 make-harness: parent directory does not exist: /tmp/no/such/parent                 exit 2
 ```
+
+The allocated form is checked too. Containment is not something only an explicit
+destination needs — `TMPDIR` can point into a source tree just as easily. It is
+checked *before* `mktemp` runs, so a refusal leaves nothing behind:
+
+```text
+$ TMPDIR=<app-repo> make-harness.sh <app-repo> HEAD <corpus>
+make-harness: TMPDIR is inside the App checkout: <app-repo>                        exit 2
+
+$ TMPDIR=<corpus> make-harness.sh <app-repo> HEAD <corpus>
+make-harness: TMPDIR is inside the corpus: <corpus>                                exit 2
+
+$ TMPDIR=/tmp/repo-link make-harness.sh <app-repo> HEAD <corpus>   # → <app-repo>
+make-harness: TMPDIR is inside the App checkout: <app-repo>                        exit 2
+
+$ TMPDIR=/tmp/does-not-exist make-harness.sh <app-repo> HEAD <corpus>
+make-harness: TMPDIR does not exist: /tmp/does-not-exist                           exit 2
+```
+
+The third case is the one worth noticing: `TMPDIR` was a **symlink** to the App
+checkout, and `pwd -P` resolved it before the comparison. The checkout held the
+same number of entries before and after all four runs.
 
 The two helper guards were exercised the same way, by running each from the App
 checkout instead of its own harness root:
