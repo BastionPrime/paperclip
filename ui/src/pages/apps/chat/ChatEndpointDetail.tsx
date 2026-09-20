@@ -1,3 +1,4 @@
+import { GitHubBotManagement, GitHubReviews } from "./GitHubBotManagement";
 import { EmailEndpointSettings } from "./EmailEndpointSetup";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -45,7 +46,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { Link, Navigate, useNavigate, useParams } from "@/lib/router";
 
-const tabs = ["settings", "access", "conversations", "activity"] as const;
+const tabs = ["settings", "access", "reviews", "conversations", "activity"] as const;
 type ChatTab = (typeof tabs)[number];
 const tabItems = tabs.map((value) => ({
   value,
@@ -314,9 +315,14 @@ export function ChatEndpointDetail() {
         </div>
       </header>
       {activeTab === "settings" && (
-        <Settings endpointId={endpoint.id} endpoint={endpoint} />
+        <>
+{endpoint.provider === "github" && <GitHubBotManagement endpoint={endpoint} view="settings" />}
+{endpoint.provider !== "github" && <Settings endpointId={endpoint.id} endpoint={endpoint} />}
+</>
       )}
-      {activeTab === "access" && (
+      {activeTab === "reviews" && endpoint.provider === "github" && <GitHubReviews endpointId={endpoint.id} />}
+{activeTab === "access" && endpoint.provider === "github" && <GitHubBotManagement endpoint={endpoint} view="access" />}
+{activeTab === "access" && endpoint.provider !== "github" && (
         <Access
           endpointId={endpoint.id}
           allowUnlinked={endpoint.allowUnlinkedPeople}
