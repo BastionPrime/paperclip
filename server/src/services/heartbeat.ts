@@ -28915,6 +28915,20 @@ export function heartbeatService(
           message: options.eventMessage ?? "run cancelled",
           ...(options.eventPayload ? { payload: options.eventPayload } : {}),
         });
+        // A cancelled run can no longer own an environment lease. The cancel
+        // path is a terminal transition: the process is stopped and will never
+        // run its own release. Without this call the lease row stays
+        // status='active' / released_at=null on a terminal run, and
+        // getConversationOwnershipBlocker() then blocks every later wake for
+        // the issue with execution_reconciliation_required, silently, with no
+        // run and no retry (paperclipai/paperclip#13532).
+        await releaseEnvironmentLeasesForRun({
+          runId: cancelled.id,
+          companyId: cancelled.companyId,
+          agentId: cancelled.agentId,
+          status: cancelled.status,
+          failureReason: reason,
+        });
         await releaseIssueExecutionAndPromote(cancelled, {
           suppressImmediateRecovery: options.suppressImmediateRecovery,
         });
